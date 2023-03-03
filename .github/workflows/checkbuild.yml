@@ -1,0 +1,42 @@
+name: Check build on commit
+
+on: 
+  push:
+    branches-ignore:
+      - master
+
+jobs:
+  pushbuilder:
+    runs-on: self-hosted
+    container:
+      image: obspher/ubuntu-dev:1.0.0
+      env:
+        CONAN_USER_HOME: /home/conan
+      volumes:
+        - /home/obs-vision/github/conan:/home/conan
+      credentials:
+        username: ${{ secrets.DOCKER_HUB_USERNAME }}
+        password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v2
+
+      - name: Create build directory
+        run: mkdir build
+
+      - name: Install conan dependencies
+        working-directory: ./build
+        run: conan install .. -pr release --build outdated
+
+      - name: Build package
+        working-directory: ./build
+        run: conan build ..
+
+      - name: Static analysis
+        run:  cppcheck src/ -Iinclude/ --error-exitcode=1 --enable=all --std=c++20 --inline-suppr
+
+      - name: Dynamic analysis on unit tests
+        run: valgrind --leak-check=full --show-reachable=yes --trace-children=yes --error-exitcode=33 ./build/bin/unit_test
+
+      - name: Export conan package
+        run: conan export-pkg . -bf ./build -pr release -f
